@@ -14,10 +14,9 @@ Uses a 3D coordinate system and associates wireless metadata with each node.
 Outputs scanned nodes to a JSON file.
 
 # Install
-Wifi mapper is written in [Rust](https://www.rust-lang.org/), it must 
-be installed.  
+Wifi mapper is written in [Rust](https://www.rust-lang.org/).
 
-Build:
+To build:
 
 ```
 % cargo build
