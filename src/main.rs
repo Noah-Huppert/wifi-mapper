@@ -36,9 +36,9 @@ struct Network {
 #[derive(Serialize, Deserialize)]
 struct Node {
     position: Coordinate,
-    networks: Vec<Network>,
     notes: String,
-}
+    networks: Vec<Network>,
+} 
 
 // Holds nodes with their scans. Saved to a file.
 #[derive(Serialize, Deserialize)]
@@ -113,8 +113,79 @@ fn main() {
         io::stdin().read_line(&mut scan_map.notes).expect("failed to read input");
         scan_map.notes = scan_map.notes.replace("\n", "");
     }
+
+    // Prompt user for position
+    let mut position = Coordinate{
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+
+    'get_xyz_loop:
+    loop {
+        print!("x y z: ");
+        io::stdout().flush().expect("failed to flush stdout");
+        let mut pos_str = String::new();
+        io::stdin().read_line(&mut pos_str).expect("failed to read input");
+        pos_str = pos_str.replace("\n", "");
+
+        let parts: Vec<&str> = pos_str.split(" ").collect();
+        if parts.len() != 3 {
+            println!("must be in format: x y z");
+            continue;
+        }
+
+        let mut pos_floats: [f32; 3] = [0.0, 0.0, 0.0];
+        let pos_part_names: [&str; 3] = ["x", "y", "z"];
+
+        for i in 0..3 {
+            pos_floats[i] = match parts[i].parse::<f32>() {
+                Ok(v) => v,
+                Err(e) => {
+                    println!("failed to parse {}=\"{}\" as float: {}",
+                             pos_part_names[i], parts[i], e);
+                    continue 'get_xyz_loop;
+                },
+            }
+        }
+
+        position.x = pos_floats[0];
+        position.y = pos_floats[1];
+        position.z = pos_floats[2];
+        break
+    }
+
+    // Prompt user for notes
+    print!("notes: ");
+
+    let mut notes = String::new();
+    io::stdout().flush().expect("failed to flush stdout");
+    io::stdin().read_line(&mut notes).expect("failed to read input");
+    notes = notes.replace("\n", "");
+
+    // Scan networks
+    let scan = match wifiscanner::scan() {
+        Ok(v) => v,
+        Err(e) => panic!("failed to scan networks: {:#?}", e),
+    };
     
-    let scan = wifiscanner::scan();
+    let mut networks = Vec::<Network>::new();
+    
+    for network in scan {
+        networks.push(Network{
+            mac: network.mac,
+            ssid: network.ssid,
+            channel: network.channel,
+            strength: network.signal_level,
+        });
+    }
+
+    // Add node to map
+    scan_map.nodes.push(Node{
+        position: position,
+        notes: notes,
+        networks: networks,
+    });
 
     // Save scan map
     let scan_map_str = match serde_json::to_string(&scan_map) {
