@@ -187,6 +187,9 @@ fn main() {
         networks: networks,
     });
 
+    println!("added node at ({}, {}, {}) with {} networks",
+             position.x, position.y, position.z, networks.len());
+
     // Save scan map
     let scan_map_str = match serde_json::to_string(&scan_map) {
         Ok(v) => v,
