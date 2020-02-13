@@ -30,7 +30,7 @@ will add one node to the map.
 
 Specify the map JSON file with the `-f` option.  
 
-The tool may have to be run as a super user in order to have permission to your 
+The tool may have to be run as a super user in order to have access to your 
 wireless interface.
 
 Run:
