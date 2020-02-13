@@ -19,7 +19,7 @@ Wifi mapper is written in [Rust](https://www.rust-lang.org/).
 To build:
 
 ```
-% cargo build
+% cargo build --release
 ```
 
 This will produce the `target/release/wifi-mapper` binary.
