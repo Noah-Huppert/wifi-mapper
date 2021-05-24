@@ -7,7 +7,7 @@ Map wireless networks.
 - [Use](#use)
 
 # Overview
-Map wireless networks in an attempt to figure out their origin.
+Map wireless networks.
 
 Uses a 3D coordinate system and associates wireless metadata with each node.
 
