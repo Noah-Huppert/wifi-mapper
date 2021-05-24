@@ -51,7 +51,67 @@ struct Node {
     position: Coordinate,
     notes: String,
     networks: Vec<Network>,
-} 
+}
+
+impl Node {
+    /// Create a new Node by asking the user for data and scanning.
+    fn acquire() -> Result<Node, Box<dyn Error>> {
+	   	   // Prompt user for position
+        let mut position = Coordinate::new();
+	   
+	   let mut get_pos_done = false;
+        while !get_pos_done {
+            print!("x y z: ");
+            stdout().flush().expect("failed to flush stdout");
+            let mut pos_str = String::new();
+            stdin().read_line(&mut pos_str).expect("failed to read input");
+            pos_str = pos_str.replace("\n", "");
+
+            let parts: Vec<&str> = pos_str.split(" ").collect();
+            if parts.len() != 3 {
+                println!("must be in format: x y z");
+                continue;
+            }
+
+		  position.x = parts[0].parse::<f32>().expect("failed to parse x as float");
+		  position.y = parts[1].parse::<f32>().expect("failed to parse y as float");
+		  position.z = parts[2].parse::<f32>().expect("failed to parse z as float");
+		  
+            get_pos_done = true;
+        }
+
+        // Prompt user for notes
+        print!("notes: ");
+
+        let mut notes = String::new();
+        stdout().flush().expect("failed to flush stdout");
+        stdin().read_line(&mut notes).expect("failed to read input");
+        notes = notes.replace("\n", "");
+
+        // Scan networks
+        let scan_time = SystemTime::now().duration_since(UNIX_EPOCH)
+            .expect("failed to get time").as_millis();
+	   
+        let scan = wifiscanner::scan()?;
+        let mut networks = Vec::<Network>::new();
+        
+        for network in scan {
+            networks.push(Network{
+                mac: network.mac,
+                ssid: network.ssid,
+                channel: network.channel,
+                strength: network.signal_level,
+                time_scanned: scan_time,
+            });
+        }
+
+        Ok(Node{
+            position: position,
+            notes: notes,
+            networks: networks,
+        })
+    }
+}
 
 /// Holds nodes with their scans. Saved to a file.
 #[derive(Serialize, Deserialize)]
@@ -99,6 +159,17 @@ impl ScanMap {
 	   let writer = BufWriter::new(file);
 
 	   serde_json::to_writer(writer, self)?;
+
+	   Ok(())
+    }
+
+    /// Acquire a new reading.
+    fn acquire(&mut self) -> Result<(), Box<dyn Error>> {
+	   let node = Node::acquire()?;
+        
+        println!("added node at ({}, {}, {}) with {} networks", node.position.x, node.position.y, node.position.z, node.networks.len());
+        
+        self.nodes.push(node);
 
 	   Ok(())
     }
@@ -164,68 +235,8 @@ fn main() {
     };
 
     if arg_matches.subcommand_matches("record").is_some() {
-        // Prompt user for position
-        let mut position = Coordinate::new();
-	   
-	   let mut get_pos_done = false;
-        while !get_pos_done {
-            print!("x y z: ");
-            stdout().flush().expect("failed to flush stdout");
-            let mut pos_str = String::new();
-            stdin().read_line(&mut pos_str).expect("failed to read input");
-            pos_str = pos_str.replace("\n", "");
-
-            let parts: Vec<&str> = pos_str.split(" ").collect();
-            if parts.len() != 3 {
-                println!("must be in format: x y z");
-                continue;
-            }
-
-		  position.x = parts[0].parse::<f32>().expect("failed to parse x as float");
-		  position.y = parts[1].parse::<f32>().expect("failed to parse y as float");
-		  position.z = parts[2].parse::<f32>().expect("failed to parse z as float");
-		  
-            get_pos_done = true;
-        }
-
-        // Prompt user for notes
-        print!("notes: ");
-
-        let mut notes = String::new();
-        stdout().flush().expect("failed to flush stdout");
-        stdin().read_line(&mut notes).expect("failed to read input");
-        notes = notes.replace("\n", "");
-
-        // Scan networks
-        let scan_time = SystemTime::now().duration_since(UNIX_EPOCH)
-            .expect("failed to get time").as_millis();
-        let scan = match wifiscanner::scan() {
-            Ok(v) => v,
-            Err(e) => panic!("failed to scan networks: {:#?}", e),
-        };
-        
-        let mut networks = Vec::<Network>::new();
-        
-        for network in scan {
-            networks.push(Network{
-                mac: network.mac,
-                ssid: network.ssid,
-                channel: network.channel,
-                strength: network.signal_level,
-                time_scanned: scan_time,
-            });
-        }
-
-        // Add node to map
-        let node = Node{
-            position: position,
-            notes: notes,
-            networks: networks,
-        };
-        
-        println!("added node at ({}, {}, {}) with {} networks", node.position.x, node.position.y, node.position.z, node.networks.len());
-        
-        scan_map.nodes.push(node);
+        // Acquire new reading
+	   scan_map.acquire().expect("failed to acquire new reading");
 
         // Save scan map
         scan_map.write(map_file_path).expect("failed to save scan map");

@@ -25,13 +25,11 @@ To build:
 This will produce the `target/release/wifi-mapper` binary.
 
 # Use
-Wifi mapper stores map information in a JSON file. Each invocation of the tool 
-will add one node to the map.
+Wifi mapper stores map information in a JSON file. Each invocation of the tool will add one node to the map.
 
 Specify the map JSON file with the `-f` option.  
 
-The tool may have to be run as a super user in order to have access to your 
-wireless interface.
+The tool may have to be run as a super user in order to have access to your wireless interface.
 
 Run:
 
