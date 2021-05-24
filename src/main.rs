@@ -8,6 +8,8 @@ use std::path::Path;
 use std::fs::{File,OpenOptions};
 use std::io::{stdin,stdout,Write,BufReader,BufWriter};
 use std::time::{SystemTime,UNIX_EPOCH};
+use std::convert::From;
+use std::fmt;
 
 use clap::{Arg,App,SubCommand};
 use serde::{Deserialize, Serialize};
@@ -43,6 +45,56 @@ struct Network {
     strength: String,
     /// Milliseconds since EPOCH
     time_scanned: u128,
+}
+
+/// Error which occurs during a wifi scan.
+#[derive(Debug)]
+struct ScanError {
+    /// Reason scan failed.
+    reason: wifiscanner::Error,
+}
+
+impl fmt::Display for ScanError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+	   write!(f, "resource={:?}", self.reason)
+    }
+}
+
+impl Error for ScanError {}
+
+impl From<wifiscanner::Error> for ScanError {
+    /// Create a ScanError from a wifiscanner::Error.
+    fn from(e: wifiscanner::Error) -> ScanError {
+	   ScanError{
+		  reason: e,
+	   }
+    }
+}
+
+impl Network {
+    /// Scan wifi networks.
+    fn scan() -> Result<Vec<Network>, Box<dyn Error>> {
+	   let scan_time = (SystemTime::now().duration_since(UNIX_EPOCH)?).as_millis();
+	   
+        let scan = match wifiscanner::scan() {
+		  Ok(s) => s,
+		  Err(e) => return Err(Box::new(ScanError::from(e))),
+	   };
+	   
+        let mut networks = Vec::<Network>::new();
+        
+        for network in scan {
+            networks.push(Network{
+                mac: network.mac,
+                ssid: network.ssid,
+                channel: network.channel,
+                strength: network.signal_level,
+                time_scanned: scan_time,
+            });
+        }
+
+	   Ok(networks)
+    }
 }
 
 /// Node is the result of a scan at a location.
@@ -89,21 +141,11 @@ impl Node {
         notes = notes.replace("\n", "");
 
         // Scan networks
-        let scan_time = SystemTime::now().duration_since(UNIX_EPOCH)
-            .expect("failed to get time").as_millis();
-	   
-        let scan = wifiscanner::scan()?;
-        let mut networks = Vec::<Network>::new();
-        
-        for network in scan {
-            networks.push(Network{
-                mac: network.mac,
-                ssid: network.ssid,
-                channel: network.channel,
-                strength: network.signal_level,
-                time_scanned: scan_time,
-            });
-        }
+	   let networks = Network::scan()?;
+
+	   if networks.len() == 0 {
+		  println!("no networks found, maybe you need to run with sudo");
+	   }
 
         Ok(Node{
             position: position,
