@@ -19,7 +19,7 @@ Wifi mapper is written in [Rust](https://www.rust-lang.org/).
 To build:
 
 ```
-% cargo build --release
+cargo build --release
 ```
 
 This will produce the `target/release/wifi-mapper` binary.
@@ -34,5 +34,5 @@ The tool may have to be run as a super user in order to have access to your wire
 Run:
 
 ```
-# wifi-mapper -f map-file.json
+wifi-mapper -f map-file.json record
 ```
