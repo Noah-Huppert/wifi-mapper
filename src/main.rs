@@ -3,11 +3,10 @@ extern crate clap;
 extern crate serde;
 extern crate serde_json;
 
+use std::error::Error;
 use std::path::Path;
-use std::fs;
-use std::io;
-use std::io::Write;
-use std::ffi::OsStr;
+use std::fs::{File,OpenOptions};
+use std::io::{stdin,stdout,Write,BufReader,BufWriter};
 use std::time::{SystemTime,UNIX_EPOCH};
 
 use clap::{Arg,App,SubCommand};
@@ -15,9 +14,7 @@ use serde::{Deserialize, Serialize};
 
 // TODO: Fix build errors from ScanMap.{read,write} refactor
 
-// Indicates position in coordinate system.
-// It is suggested that x and y are positions in a horizontal 2D plane and
-// z is the height.
+/// Indicates position in coordinate system. It is suggested that x and y are positions in a horizontal 2D plane and z is the height.
 #[derive(Serialize, Deserialize)]
 struct Coordinate {
     x: f32,
@@ -25,19 +22,30 @@ struct Coordinate {
     z: f32,
 }
 
-// Network holds information about a wireless network.
+impl Coordinate {
+    /// Initializes a zero-ed Coordinate struct.
+    fn new() -> Coordinate {
+	   Coordinate{
+	       x: 0.0,
+            y: 0.0,
+            z: 0.0,
+        }
+    }
+}
+
+/// Network holds information about a wireless network.
 #[derive(Serialize, Deserialize)]
 struct Network {
     mac: String,
     ssid: String,
     channel: String,
-    // In dBm
+    /// In dBm
     strength: String,
-    // Milliseconds since EPOCH
+    /// Milliseconds since EPOCH
     time_scanned: u128,
 }
 
-// Node is the result of a scan at a location.
+/// Node is the result of a scan at a location.
 #[derive(Serialize, Deserialize)]
 struct Node {
     position: Coordinate,
@@ -45,54 +53,54 @@ struct Node {
     networks: Vec<Network>,
 } 
 
-// Holds nodes with their scans. Saved to a file.
+/// Holds nodes with their scans. Saved to a file.
 #[derive(Serialize, Deserialize)]
 struct ScanMap {
+    /// Title of the scan map.
     name: String,
-    notes: String,    
+
+    /// Free-form description of any additional details.
+    notes: String,
+
+    /// Scan data points.
     nodes: Vec<Node>,
 }
 
 impl ScanMap {
+    /// Initialize an empty ScanMap.
+    fn new() -> ScanMap {
+	   ScanMap{
+		  name: String::from(""),
+		  notes: String::from(""),
+		  nodes: Vec::<Node>::new(),
+	   }
+    }
+    
+    /// Creates a new ScanMap from an existing json file.
+    fn read(p: &Path) -> Result<ScanMap, Box<dyn Error>> {
+	   let file = File::open(p)?;
+	   let reader = BufReader::new(file);
+
+	   let scan_map = serde_json::from_reader(reader)?;
+
+	   Ok(scan_map)
+    }
+
     fn print_overview(&self) {
         println!("name: {}", self.name);
         println!("notes: {}", self.notes);
         println!("# nodes: {}", self.nodes.len());
     }
 
-    // Reads a .json scan map file specified by p from the disk into
-    // the current ScanMap.
-    fn read(&self, p: &Path) -> Result<(), &str> {
-        let scan_map_str = match fs::read_to_string(p) {
-            Ok(v) => v,
-            Err(e) => return Err(&format!("failed to read existing scan \
-                                          map \"{}\": {}", map_file, e)),
-        };
-        
-        self = match serde_json::from_str(&scan_map_str.to_owned()) {
-            Ok(v) => v,
-            Err(e) => Err(&format!("failed to JSON parse existing scan \
-                                   map \"{}\": {}", p.to_string_lossy(), e)),
-        };
 
-        return Ok(())
-    }
+    /// Write curren ScanMap to .json file
+    fn write(&self, p: &Path) -> Result<(), Box<dyn Error>> {
+	   let file = OpenOptions::new().read(true).write(true).create(true).open(p)?;
+	   let writer = BufWriter::new(file);
 
-    // Write curren ScanMap to .json file
-    fn write(&self, p: &Path) -> Result<(), &str> {
-        let scan_map_str = match serde_json::to_string(self) {
-            Ok(v) => v,
-            Err(e) => return Err(&format!("failed to JSON serialize scan map: {}",
-                                         e)),
-        };
+	   serde_json::to_writer(writer, self)?;
 
-        match fs::write(p, scan_map_str) {
-            Ok(()) => (),
-            Err(e) => return Err(&format!("failed to save scan map to \"{}\": {}",
-                                         p.to_string_lossy(), e)),
-        };
-
-        return Ok(());
+	   Ok(())
     }
 }
 
@@ -109,80 +117,62 @@ fn main() {
              .required(true))
         .subcommand(SubCommand::with_name("record")
                     .about("Records a new scan to the map"))
-        .subcommand(SubCommand::with_name("export-csv")
-                    .about("Exports a map to 2 CSV files, nodes.csv containing \
-                           node IDs and positions, and networks.csv containing \
-                           network information and associates to nodes")
-                    .arg(Arg::with_name("directory")
-                         .short("d")
-                         .long("directory")
-                         .value_name("DIR")
-                         .help("Directory to export files within")
-                         .takes_value(true)
-                         .required(true)))
         .get_matches();
 
     let map_file = arg_matches.value_of("map_file").unwrap();
 
-    // Load map file if it exists
+    // Initialize scan map
     let map_file_path = Path::new(map_file);
-    if map_file_path.extension().unwrap_or(OsStr::new("")) != OsStr::new("json") {
-        panic!("map file must have a .json extension")
-    }
-    
-    let mut scan_map = ScanMap{
-        name: "".to_string(),
-        notes: "".to_string(),
-        nodes: Vec::<Node>::new(),
+    let mut scan_map = match map_file_path.exists() {
+	   true => {
+		  // Read existing scan map file
+		  let scan_map = ScanMap::read(map_file_path).expect("failed to load existing scan map");
+
+		  println!("loaded existing scan map \"{}\"", map_file_path.display());
+		  scan_map.print_overview();
+		  
+		  scan_map
+	   },
+	   false => {
+		  // Create new scan map
+		  println!("creating new scan map \"{}\"", map_file_path.display());
+		  
+		  let mut scan_map = ScanMap::new();
+
+		  let mut get_name_done = false;
+		  while !get_name_done {
+			 print!("name: ");
+			 stdout().flush().expect("failed to flush stdout");
+			 stdin().read_line(&mut scan_map.name)
+				.expect("failed to read input");
+			 scan_map.name = scan_map.name.replace("\n", "");
+
+			 if scan_map.name.len() > 0 {
+				get_name_done = true;
+			 } else {
+				println!("name cannot be empty");
+			 }
+		  }
+
+		  print!("notes: ");
+		  stdout().flush().expect("failed to flush stdout");
+		  stdin().read_line(&mut scan_map.notes).expect("failed to read input");
+		  scan_map.notes = scan_map.notes.replace("\n", "");
+
+		  scan_map
+	   },
     };
-    
-    if map_file_path.exists() {
-        match scan_map.read(map_file_path) {
-            Ok(_) => (),
-            Err(e) => panic!("failed to load scan map: {}", e),
-        };
-
-        println!("loaded existing scan map \"{}\"", map_file);
-        scan_map.print_overview();
-    } else if  arg_matches.subcommand_matches("record").is_some() {
-        println!("creating new scan map \"{}\"", map_file);
-
-        loop {
-            print!("name: ");
-            io::stdout().flush().expect("failed to flush stdout");
-            io::stdin().read_line(&mut scan_map.name)
-                .expect("failed to read input");
-            scan_map.name = scan_map.name.replace("\n", "");
-
-            if scan_map.name.len() > 0 {
-                break
-            } else {
-                println!("name cannot be empty");
-            }
-        }
-
-        print!("notes: ");
-        io::stdout().flush().expect("failed to flush stdout");
-        io::stdin().read_line(&mut scan_map.notes).expect("failed to read input");
-        scan_map.notes = scan_map.notes.replace("\n", "");
-    } else {
-        panic!("scan map \"{}\" file does not exist, cannot export", map_file)
-    }
 
     if arg_matches.subcommand_matches("record").is_some() {
         // Prompt user for position
-        let mut position = Coordinate{
-            x: 0.0,
-            y: 0.0,
-            z: 0.0,
-        };
-
-        'get_xyz_loop:
-        loop {
+        let mut position = Coordinate::new();
+	   
+	   let mut get_pos_done = false;
+        while !get_pos_done {
             print!("x y z: ");
-            io::stdout().flush().expect("failed to flush stdout");
+            stdout().flush().expect("failed to flush stdout");
             let mut pos_str = String::new();
-            io::stdin().read_line(&mut pos_str).expect("failed to read input");
+            stdin().read_line(&mut pos_str).expect("failed to read input");
             pos_str = pos_str.replace("\n", "");
 
             let parts: Vec<&str> = pos_str.split(" ").collect();
@@ -191,32 +181,19 @@ fn main() {
                 continue;
             }
 
-            let mut pos_floats: [f32; 3] = [0.0, 0.0, 0.0];
-            let pos_part_names: [&str; 3] = ["x", "y", "z"];
-
-            for i in 0..3 {
-                pos_floats[i] = match parts[i].parse::<f32>() {
-                    Ok(v) => v,
-                    Err(e) => {
-                        println!("failed to parse {}=\"{}\" as float: {}",
-                                 pos_part_names[i], parts[i], e);
-                        continue 'get_xyz_loop;
-                    },
-                }
-            }
-
-            position.x = pos_floats[0];
-            position.y = pos_floats[1];
-            position.z = pos_floats[2];
-            break
+		  position.x = parts[0].parse::<f32>().expect("failed to parse x as float");
+		  position.y = parts[1].parse::<f32>().expect("failed to parse y as float");
+		  position.z = parts[2].parse::<f32>().expect("failed to parse z as float");
+		  
+            get_pos_done = true;
         }
 
         // Prompt user for notes
         print!("notes: ");
 
         let mut notes = String::new();
-        io::stdout().flush().expect("failed to flush stdout");
-        io::stdin().read_line(&mut notes).expect("failed to read input");
+        stdout().flush().expect("failed to flush stdout");
+        stdin().read_line(&mut notes).expect("failed to read input");
         notes = notes.replace("\n", "");
 
         // Scan networks
@@ -246,18 +223,11 @@ fn main() {
             networks: networks,
         };
         
-        println!("added node at ({}, {}, {}) with {} networks",
-                 node.position.x, node.position.y, node.position.z,
-                 node.networks.len());
+        println!("added node at ({}, {}, {}) with {} networks", node.position.x, node.position.y, node.position.z, node.networks.len());
         
         scan_map.nodes.push(node);
 
         // Save scan map
-        match scan_map.write(map_file_path) {
-            Ok(_) => (),
-            Err(e) => panic!("failed to save scan map: {}", e),
-        };
-    } else if arg_matches.subcommand_matches("export-csv").is_some() {
-        
+        scan_map.write(map_file_path).expect("failed to save scan map");
     }
 }
